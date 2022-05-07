@@ -1,0 +1,477 @@
+---
+title: "FIFA data project"
+author: "Bimark Dankwa"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+version: 1
+---
+
+# 0. Instructions 
+
+```{r}
+
+
+install.packages("tidyverse")
+install.packages("here")
+install.packages("skimr")
+install.packages("janitor")
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("dlookr")
+install.packages("modelr")
+
+```
+Tidyverse package consists of a series of other packages which provide functions for sub-setting, transforming, visualizing and interacting with data. The skimr package have functions that provide summary statistics about the variables in the data.Here package provides functions for handing file paths.The ggplot2 package provide functions for visualisation. Dyplyr package helps in data manipulation and cleaning. The dlookr provides functions for diagnostics and assessment of data as well as for data exploratory analysis. The modelr also provides functions for the modelling of data. Janitor package provides functions for examining and cleaning of data. 
+
+
+# 1. Organise and clean the data04/
+
+## 1.1 Subset the data into the specific dataset allocated
+
+```{r}
+
+SID <- 2134942                  
+SIDoffset <- (SID %% 25) + 1    
+
+load("CS5801_football_analysis.Rda")
+
+mydf <- football.analysis[seq(from=SIDoffset,to=nrow(football.analysis),by=25),]
+
+```
+
+
+## 1.2 Data quality analysis
+### Assessment Plan
+1. Analyze the shape of the data set
+2. Check for data validity by analyzing if data points are in the same and correct format
+3. Check for data accuracy by looking out for error-prone variables and data points
+4. Check for consistency to determine if data points and variables are truly consistent with their types
+5. Check for missing values, negative values and outliers
+
+ 
+```{r}
+#Viewing the data set
+head(mydf,10)
+tail(mydf,10)
+```
+Head and tail functions give a snapshot or preview of the data without showing the entire data
+
+```{r}
+#View(mydf)
+#Checking the shape of the data
+dim(mydf)
+
+#Checking the variable names
+colnames(mydf)
+```
+The shape of the data was determined with the dim() function. The results shown of 514 by 17 means there are 514 rows (observations) and 17 columns (variables). Column names were inspected using the colnames() function inorder to check for consistency.
+
+```{r}
+#check for missing values
+any(is.na(mydf))
+```
+This function checks to see if there are any missing values. A value of FALSE was returned informing us that there are no missing values in the entire dataset.
+
+```{r}
+#Give me summary of the data
+summary(mydf)
+
+#skim through the data
+skim_without_charts(mydf)
+
+glimpse(mydf)
+```
+These functions give summary statistics of the data.With the help of these functions the type, counts, mean, mode, median and outliers of each of the variables can be determined. It can be seen from the summary stats that the variable high.wage.ind is numeric instead of categorical. The variable sofifa_id is also an integer instead of character  
+
+```{r}
+#Using the package dlookr for quality diagnosis
+diagnose(mydf)
+
+diagnose_numeric(mydf)
+
+diagnose_category(mydf)
+```
+These functions do a quality diagnostics of the entire data, the numeric variables and the categorical variables.  The functions give information on the variables, types, number of missing values, percentage of missing values,number of unique values, and rate of unique values.
+ 
+### Summary of findings from Quality Analysis
+* The data did not contain any missing values
+* The variable sofifa has its type to be an integer which needs to be changed to character
+* The variable high.wage.ind has two categories that is 0 and 1 but its type is an integer and this need to be changed to a categorical variable
+* The variables pace and dribbling have some few negative numbers which will affect the outcome of their analysis
+*The column name high.wage.ind is not consistent with the naming of the other columns 
+*The quality assessment revealed that there are few duplicates in the data which was shown in the outcome of the `r `diagnose(mydf)` where there are only 513 unique counts of observations from sofifa_id instead of 514. 
+* Also for the preferred_foot variable, the category "Right" has two different naming that is "Right" and "right" and this have to be corrected at the data cleaning stage
+* Some variables have to be merged to ensure smooth analysis.
+
+**Variables to merge :**
+
+* power_overall: power_strength and power_long_shots.
+* skill_overall: pace, dribbling, passing, shooting,and defending.
+
+ 
+## 1.3 Data cleaning  
+```{r}
+#For consistency, rename high.wage.ind
+mydf <- rename(mydf, high_wage_ind=high.wage.ind)
+```
+**Quality issue:**
+The variable high.wage.ind is inconsistent with the naming of all the other variables
+
+**Response:**
+The variable was renamed correctly to high_wage_ind so as to be consistent with the other variables
+
+```{r}
+#Converting high.wage.ind to categorical
+mydf$high_wage_ind <- as.factor(mydf$high_wage_ind)
+```
+**Quality issue:**
+The variable high.wage.ind which has two values namely 0 and 1 is supposed to be a categorical variable but came as an integer.
+
+**Response:**
+The function as.factor() was used to convert this variable to categorical
+
+```{r}
+#Converting sofifa id to character in order to remove duplicates
+mydf$sofifa_id <- as.character(mydf$sofifa_id)
+```
+**Quality issue:**
+The variable sofifa_id is supposed to be a character and not an integer
+
+**Response:**
+The function as.character() was used to convert the variable from integer to character
+
+```{r}
+#Extracting the duplicates
+dups <- mydf[duplicated(mydf$sofifa_id)|duplicated(mydf$sofifa_id, fromLast=TRUE),]
+View(dups)
+```
+**Quality issue:**
+The dataset contained duplicate samples
+
+**Response:**
+All duplicated samples were extracted using the duplicated() function
+
+```{r}
+#making each sample unique
+mydf$sofifa_id <- make.unique(mydf$sofifa_id)
+diagnose(mydf)
+```
+**Quality issue:**
+Duplicate samples
+
+**Response:**
+The duplicated samples were made unique using make.unique() function
+
+```{r}
+diagnose_category(mydf, preferred_foot)
+
+#Correcting the 'right' value in preferred_foot variable
+mydf$preferred_foot[mydf$preferred_foot %in% c("Right","right")] <- "Right"
+diagnose_category(mydf,preferred_foot)
+```
+**Quality issue:**
+Preferred_foot variable has "Right" and "right" for the same categorical value of "Right"
+
+**Response:**
+This was detected with the diagnose_category() of the dlookr package. This was corrected using the above code.
+
+```{r}
+#Correcting negative values of pace variable
+mydf <- mydf %>%  mutate(pace_abs = abs(pace))
+View(mydf)
+
+#correcting negative values of dribbling variable
+mydf <- mydf %>%  mutate(dribbling_abs = abs(dribbling))
+View(mydf)
+
+diagnose(mydf)
+```
+**Quality issue:**
+pace and dribbling variables had some negative values which is not right
+
+**Response:**
+The absolute value of the variables were calculated and saved in new variables. This was done using the abs() function.
+
+```{r}
+#Merging power_strength and power_long_shots using the mean
+mydf$power_overall <- rowMeans(mydf[,c("power_strength","power_long_shots")])
+View(mydf) #new variable should be added
+#round it
+mydf$power_overall <- round(mydf$power_overall)
+View(mydf)
+
+#Merging the overall skill of each player
+mydf$skill_overall <- rowMeans(mydf[, c("pace_abs","shooting","passing","dribbling_abs","defending")])
+mydf$skill_overall <- round(mydf$skill_overall)
+
+```
+**Quality issue:**
+Some variables can be merged to make analysis easier and clearer
+
+**Response:**
+Variables power_strength and power_long_shots were merged into power_overall variable by the calculating the average of the two variables.
+Likewise the average of the variables pace, shooting, dribbling, passing and defending was calculated and saved in a new variable called skill_overall because we believe these values contribute to the overall skill of the player. 
+
+
+
+
+# 2. Exploratory Data Analysis (EDA)
+
+## 2.1 EDA plan
+Main goal of this section is to look for valuable insights hidden in the data.
+
+1. Explore the data using basic statistics for important factors such as mean, standard deviation, skewness, percentile and Kurtosis (Describing the data)
+
+2. Analyze normality of the data
+
+3. Distributions of some numeric and categorical variables for the players. Examples include Age distribution, weight, height, preferred foot and high_wage_ind variables.
+
+4. Analyze correlation to find out which of the variables correlates more with the other.
+
+5. Analyze age distribution against player potential to find out which age groups have the best potential.
+
+6. Analyze player overall skill against their potential to find out if their skill contribute to their potential
+
+7. Findings and summary of EDA
+
+
+## 2.2 EDA and summary of results  
+```{r}
+#Describe the data(giving summary statistics); use absolute values of pace and dribbling
+Sum_stats <- describe(mydf, -pace, -dribbling)
+View(Sum_stats) #Age and wage_eur are highly skewed
+```
+Description of data is done using the describe function of dlookr package 
+
+```{r}
+#Testing for normality on numeric variables; use absolute values of pace and dribbling
+normality_mydf <- normality(mydf, -pace, -dribbling) 
+View(normality_mydf)
+
+#Sorting variables that do not follow a normal distribution in order of p_value
+mydf %>% normality(-pace, -dribbling) %>% 
+  filter(p_value <= 0.05) %>% 
+  arrange(abs(p_value))
+```
+Data variables are tested for normality using the normality function of the dlookr package and arranged in order of their p-value. According to Normality test if the p-value is less than or equal to the alpha (which in this case was set at 5%), you reject the NULL hypothesis.   
+
+```{r}
+#Age distribution of players
+#table(mydf$age)
+summary(mydf$age)
+
+ggplot(data=mydf)+
+  geom_bar(mapping= aes(x=age)) + scale_x_continuous(breaks = seq(0, 100, 5)) + 
+  labs(x = "Age", title = "Distribution of players age") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+#Players weight distribution
+summary(mydf$weight_kg)
+
+ggplot(data = mydf) + 
+  geom_bar(mapping = aes(x=weight_kg)) + scale_x_continuous(breaks = seq(0,100,5)) + 
+  labs(x = "Players weights", title = "Distribution according to the weight of players") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+#Players height distribution
+summary(mydf$height_cm)
+
+ggplot(data = mydf) + 
+  geom_bar(mapping = aes(x=height_cm)) + scale_x_continuous(breaks = seq(150,300,10)) + 
+  labs(x = "Players heights", title = "Distribution according to the height of players") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+#Distribution of preferred foot
+table(mydf$preferred_foot)
+
+ggplot(data = mydf) +
+  geom_bar(mapping = aes(x=preferred_foot)) +
+  labs(x = "Preferred foot", title = "Distribution of players preferred foot") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+#Distribution of wage indicator
+table(mydf$high_wage_ind)
+
+ggplot(data = mydf) +
+  geom_bar(mapping = aes(x=high_wage_ind)) + labs(x = "high wage indicator", title = "Wage indicator distribution") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+#Finding correlation between variables
+mydf_2 <- mydf %>% select(-sofifa_id, -club_name, -preferred_foot, -pace, -dribbling, -high_wage_ind)
+round(cor(mydf_2), 1)
+
+
+#Distribution of players wages against high_wage_ind
+ggplot(mydf, aes(high_wage_ind, wage_eur)) + geom_boxplot()
+
+#preferred_foot against power_long_shots
+ggplot(mydf, aes(x = preferred_foot, y = power_long_shots, fill = preferred_foot))+
+    geom_boxplot(show.legend = FALSE)+
+    theme_minimal()+
+    scale_fill_manual(values = c("orangered", "steelblue"))+
+    labs(title = "Long shot power")
+
+ggplot(mydf, aes(x = preferred_foot, y = defending, fill = preferred_foot))+
+    geom_boxplot(show.legend = FALSE)+
+    theme_minimal()+
+    scale_fill_manual(values = c("orangered", "steelblue"))+
+    labs(title = "Defending")
+
+ggplot(mydf, aes(x = preferred_foot, y = dribbling_abs, fill = preferred_foot))+
+    geom_boxplot(show.legend = FALSE)+
+    theme_minimal()+
+    scale_fill_manual(values = c("orangered", "steelblue"))+ 
+    labs(title = "Dribbling")
+
+#Players potential distribution
+ggplot(data=mydf)+
+  geom_bar(mapping= aes(x= potential)) + labs(x = "Potential", title = "Distribution of players potential") + theme(plot.title = element_text(hjust = 0.5))
+
+#Does player skills contribute to their potential
+ggplot(mydf, aes(skill_overall, potential)) + 
+  geom_hex(bins = 50)
+
+# Age against potential
+ggplot(mydf, aes(age, potential)) + scale_x_continuous(breaks = seq(0,100,5)) +
+  geom_hex(bins = 50)
+
+#Age against wages
+ggplot(mydf, aes(age, wage_eur)) + scale_x_continuous(breaks = seq(0,100,5)) +
+  geom_hex(bins = 50)
+
+#Weight against pace
+ggplot(mydf, aes(weight_kg, pace_abs)) + geom_hex(bins = 50)
+
+```
+
+### Summary of findings
+* Description of the data revealed that variables age and wage_eur are the highly skewed variables compared to the others.
+* According to the normality test, most of the variables in the data did not follow a normal distribution especially wage, age, defending and the weight variables.
+* Majority of the players are aged between 15 and 35 years
+* Potential of majority of the players lie between 60 and 80
+* Players between the ages of 20 and 30 have the maximum potential
+* Players overall skills(which consist of pace, shooting, passing,dribbling and defending merged0 together) formed a strong pattern with their potential
+* There are more players earning high wages compared to low wages
+
+
+
+
+## 2.3 Additional insights and issues
+* Majority of players preferred to defend with their right foot
+* Majority of players preferred to take long shots with their left foot
+* Most of the players preferred to dribble with their right foot
+* Majority of the players irrespective of their ages are earning below 100000 euros as their weekly wages
+* Majority of the players are running at a pace between 60 and 80 and such players also weigh between 50 and 80kg
+
+
+
+# 3. Modelling
+
+## 3.1 Build a model for player potential
+```{r}
+#First model
+model_1 <- lm(potential ~ skill_overall + wage_eur + age + 
+                height_cm + weight_kg + preferred_foot + physic+ power_overall+ high_wage_ind, data=mydf)
+summary(model_1)
+
+
+#Second model ...Taking the log of potential
+mydf$lpotential <- log2(mydf$potential)
+model_2 <- lm(lpotential ~ skill_overall + wage_eur + age + 
+                height_cm + weight_kg + preferred_foot + physic+ power_overall+ high_wage_ind, data=mydf)
+summary(model_2)
+
+#Third model ...Taking the log of potential and skill_overall
+mydf$lpotential <- log2(mydf$potential)
+mydf$lskill_overall <- log2(mydf$skill_overall)
+model_3 <- lm(lpotential ~ lskill_overall + wage_eur + age + 
+                height_cm + weight_kg + preferred_foot + physic+ power_overall+ high_wage_ind, data=mydf)
+summary(model_3)
+
+#Fourth model...Taking the log of all numerical variable 
+mydf$lpotential <- log2(mydf$potential)
+mydf$lskill_overall <- log2(mydf$skill_overall)
+mydf$lwage_eur <- log2(mydf$wage_eur)
+mydf$lage <- log2(mydf$age)
+mydf$lheight_cm <- log2(mydf$height_cm)
+mydf$lweight_kg <- log2(mydf$weight_kg)
+mydf$lphysic <- log2(mydf$physic)
+mydf$lpower_overall <- log2(mydf$power_overall)
+
+model_4 <- lm(lpotential ~ lskill_overall + lwage_eur + lage + 
+                lheight_cm + lweight_kg + preferred_foot + lphysic+ lpower_overall+ high_wage_ind, data=mydf)
+summary(model_4)
+
+
+
+#EDA shows potential has strong pattern with skill_overall
+target_pot <- target_by(mydf, potential) #Target/Response variable
+model_5 <- relate(target_pot, skill_overall)
+summary(model_5)
+plot(model_5)
+
+```
+###Findings from model building
+Model_4 was chosen as the best model due to its large R square value. As can be seen with the other models the R squared improved when we take the log of both the dependent and independent variables. This also helped to control the effect of heteroscedacity. The results of the model indicate that some variables namely height and preferred foot did not in anyway contribute enough to the building of the model. Variables such as weight_kg and power_overall will only constribute significantly at 10%. Hence we could rebuild the model without these variables and we will likely achieve the similar results. 
+Also, from the EDA analysis we found out that the potential variable had a strong pattern with the skill_overall variable. We therefore designed the model to capture this pattern in order to see if potential depended solely on this variable. However, the model has a very poor R squared value compared to model_4 even though the data fitted well (check model_5 graph `r plot(model_5)` )
+
+**Model_4 Equation : **
+ Potential = (2 ^ lpotential) = 5 + (0.26*(2 ^ lskill_overall)) + (0.02 * (2 ^ lwage_eur)) + (-0.28 *(2 ^ lage)) + (0.089 *(2 ^ lphysic)) + (0.05 * high_wage_ind) +/- error
+ 
+ The R squared value of 0.6665 was achieved.
+ A percentge increase in player's overall skill could cause a 0.26 percentage increase in the player's potential.
+
+
+## 3.2 Critique model using relevant diagnostics
+We critique the model by doing checks on heteroscedasticity, normality, and influential observations. We can do this by using diagnostic plots.
+
+```{r}
+layout(matrix(c(1,2,3,4),2,2))
+plot(model_4)
+
+```
+The residual vs fitted plot shows that the residuals have no non-linear patterns indicating that the model is a good one and hence has no non-linear relationship between the predictor and response variables. Looking at the residual vs fitted graph, you could clearly see the residual are evenly spread around the fitted line(red). The normal Q-Q graph also shows that the residuals of model_4 are normally distributed (normality test) as the residuals are lined up well on the dashed straight line. The scale-location graph is used to check for heteroscedasticity. This graph is not so convincing, however we can still see that the residual are somehow evenly spread along the edges of the predictors.This is potentially the weakness of the model even though the log of the variables were taken to reduce its effect. The Residuals vs leverage plot is used to find influential cases if there are any. From the graph it is clearly shown that all cases are within the cook's distance lines indicating that there are no influential cases.
+
+
+## 3.3 Suggest improvements to your model
+The heteroscedasticity of the model can be improved. Probably we could use the method of weighted regression to improve this model. We can assign weights to each data point based on the variance of the fitted values.
+
+
+
+# 4. Extension work
+
+## 4.1 Model the likelihood of a player having a weekly wage above 8000 Euro (using the high.wage.ind variable provided).
+
+```{r}
+
+mydf_3 <- mydf %>% 
+  filter(wage_eur >= 8000)
+
+#using the dlookr package
+num_2 <- target_by(mydf_3, high_wage_ind) #Target/Response variable
+
+num_cat_model <- relate(num_2, wage_eur)
+
+summary(num_cat_model)
+
+
+```
+
+
+
+# References 
+
+* Dillon, L. (no date) 7 Important Characteristics Of Data Quality & Metrics To Track - ClearPoint Strategy. Available at: https://www.clearpointstrategy.com/data-quality-metrics/ (Accessed: 9 January 2022)
+
+* Hadley, W. and Grolemund, G. (no date) 24 Model building | R for Data Science. Available at: https://r4ds.had.co.nz/model-building.html (Accessed: 9 January 2022).
+
+* Wicklin, R. (2011) Log transformations: How to handle negative data values? - The DO Loop. Available at: https://blogs.sas.com/content/iml/2011/04/27/log-transformations-how-to-handle-negative-data-values.html (Accessed: 9 January 2022)
+
+* Zach (2019) Understanding Heteroscedasticity in Regression Analysis - Statology. Available at: https://www.statology.org/heteroscedasticity-regression/ (Accessed: 9 January 2022).
+
+   
